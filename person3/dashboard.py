@@ -155,6 +155,18 @@ def make_console() -> Panel:
 # ──────────────────────────────────────────────
 
 def main():
+    # Maximize terminal window on Windows
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.WinDLL('kernel32')
+            user32 = ctypes.WinDLL('user32')
+            hWnd = kernel32.GetConsoleWindow()
+            if hWnd:
+                user32.ShowWindow(hWnd, 3)  # SW_MAXIMIZE
+        except:
+            pass
+
     layout = Layout()
     layout.split_column(Layout(name="header", size=3), Layout(name="main", ratio=1), Layout(name="footer", size=6))
     layout["main"].split_row(Layout(name="left", ratio=1), Layout(name="right", ratio=1))
