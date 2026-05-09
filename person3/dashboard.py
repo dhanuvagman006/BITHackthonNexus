@@ -188,4 +188,11 @@ def main():
     except KeyboardInterrupt: pass
 
 if __name__ == "__main__":
+    # Check if we should relaunch in a new standalone window
+    if "--windowed" not in sys.argv:
+        import subprocess
+        # Using 'start' to open in a new CMD window
+        subprocess.Popen("start cmd /k python dashboard.py --windowed", shell=True)
+        sys.exit()
+        
     main()
