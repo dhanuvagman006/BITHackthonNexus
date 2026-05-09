@@ -1,7 +1,7 @@
 import os
 from .verifier import verify_backup
 
-STORAGE_BASE = "storage/backups"
+STORAGE_BASE = "backend/storage/backups"
 SYSTEMS = ["database", "auth-server", "app-server", "frontend"]
 
 def get_all_backups():

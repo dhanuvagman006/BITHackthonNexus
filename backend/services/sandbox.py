@@ -1,7 +1,7 @@
 import os
 import shutil
 
-SANDBOX_DIR = "sandbox"
+SANDBOX_DIR = "backend/sandbox"
 
 def create_sandbox():
     """Creates clean folder structure under sandbox/."""

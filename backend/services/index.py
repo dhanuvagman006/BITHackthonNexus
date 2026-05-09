@@ -4,7 +4,7 @@ from datetime import datetime
 from .storage import get_all_backups
 from .dependency import SYSTEMS
 
-INDEX_FILE = "storage/backup_index.json"
+INDEX_FILE = "backend/storage/backup_index.json"
 
 def update_index():
     """Scans all backups, updates index with latest clean backup per system and status."""

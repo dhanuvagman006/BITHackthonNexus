@@ -8,7 +8,7 @@ from .encryption import encrypt_file
 from .verifier import corrupt_backup
 
 SYSTEMS = ["database", "auth-server", "app-server", "frontend"]
-STORAGE_BASE = "storage/backups"
+STORAGE_BASE = "backend/storage/backups"
 
 def _create_mock_zip(system: str) -> bytes:
     buf = io.BytesIO()
