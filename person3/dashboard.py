@@ -268,10 +268,84 @@ def make_console() -> Panel:
     return Panel(Group(history, prompt, response), title="[bold white]CONSOLE[/]", border_style=Theme.DIM)
 
 # ──────────────────────────────────────────────
+#  Startup Sequence
+# ──────────────────────────────────────────────
+
+def show_startup_sequence():
+    """Professional boot sequence with ASCII art and simulated logs."""
+    logo = """
+    ██████╗ ██╗  ██╗ ██████╗ ███████╗███╗   ██╗██╗██╗  ██╗
+    ██╔══██╗██║  ██║██╔═══██╗██╔════╝████╗  ██║██║╚██╗██╔╝
+    ██████╔╝███████║██║   ██║█████╗  ██╔██╗ ██║██║ ╚███╔╝ 
+    ██╔═══╝ ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║██║ ██╔██╗ 
+    ██║     ██║  ██║╚██████╔╝███████╗██║ ╚████║██║██╔╝ ██╗
+    ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
+    [bold cyan]S E C U R I T Y   O P S   C E N T E R[/]
+    """
+    
+    boot_logs = [
+        "INITIALIZING SECURE KERNEL...",
+        "MOUNTING ENCRYPTED VOLUMES...",
+        "ESTABLISHING HANDSHAKE WITH VAULT ALPHA...",
+        "SYNCING IMMUTABLE BACKUP INDEX...",
+        "LOADING NETWORK TOPOLOGY...",
+        "STARTING HEURISTIC ENGINE...",
+        "DECRYPTING DASHBOARD ASSETS...",
+        "SYSTEM CHECK: [bold green]OK[/]",
+    ]
+
+    with Live(Align.center(Group(Text(""))), screen=True, refresh_per_second=10) as live:
+        # 1. Show Logo with Fade-In Effect
+        for i in range(10):
+            opacity = i / 10
+            styled_logo = Text(logo, style=f"bold {Theme.CYAN}")
+            live.update(Align.center(Group(
+                styled_logo,
+                Text("\n" * 2),
+                Text("BOOTING...", style=Theme.DIM)
+            )))
+            time.sleep(0.05)
+
+        # 2. Simulated Logs & Progress
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(bar_width=40, complete_style=Theme.CYAN),
+            TextColumn("[bold cyan]{task.percentage:>3.0f}%"),
+        )
+        task = progress.add_task("BOOTING SYSTEM...", total=len(boot_logs))
+        
+        current_logs = []
+        for i, log in enumerate(boot_logs):
+            current_logs.append(f"[{Theme.DIM}]>[/] {log}")
+            if len(current_logs) > 5:
+                current_logs.pop(0)
+            
+            log_text = Text("\n".join(current_logs))
+            
+            for _ in range(5): # Smooth progress between logs
+                progress.update(task, advance=0.2)
+                live.update(Align.center(Group(
+                    Text(logo, style=f"bold {Theme.CYAN}"),
+                    Text("\n"),
+                    progress,
+                    Text("\n"),
+                    Panel(log_text, border_style=Theme.DIM, width=60, title="[bold]BOOT LOG[/]")
+                )))
+                time.sleep(0.05 + random.random() * 0.1)
+
+        time.sleep(0.5)
+        live.update(Align.center(Text("READY", style=f"bold {Theme.GREEN}")))
+        time.sleep(0.5)
+
+# ──────────────────────────────────────────────
 #  Main
 # ──────────────────────────────────────────────
 
 def main():
+    if "--windowed" in sys.argv:
+        show_startup_sequence()
+
     hWnd = None
     if sys.platform == "win32":
         try:
