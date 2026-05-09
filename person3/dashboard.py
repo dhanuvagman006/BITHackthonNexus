@@ -55,6 +55,7 @@ class DashboardState:
         self.lock = threading.Lock()
         self.running = True
         self.connected = False
+        self.focused = True
 
     def update_data(self, new_data: Optional[Dict[str, Any]]):
         with self.lock:
@@ -126,18 +127,25 @@ def input_handler():
     while state.running:
         if msvcrt.kbhit():
             char = msvcrt.getch()
-            if char == b'\r':  # Enter
-                state.submit_command()
-            elif char == b'\x08':  # Backspace
-                state.backspace()
-            elif char == b'\x03':  # Ctrl+C
+            if char == b'\t':  # Tab - Toggle focus
+                with state.lock:
+                    state.focused = not state.focused
+            elif state.focused:
+                if char == b'\r':  # Enter
+                    state.submit_command()
+                elif char == b'\x08':  # Backspace
+                    state.backspace()
+                elif char == b'\x03':  # Ctrl+C
+                    state.running = False
+                    break
+                else:
+                    try:
+                        state.add_char(char.decode('utf-8'))
+                    except:
+                        pass
+            elif char == b'\x03':  # Still allow Ctrl+C even if not focused
                 state.running = False
                 break
-            else:
-                try:
-                    state.add_char(char.decode('utf-8'))
-                except:
-                    pass
         time.sleep(0.01)  # High frequency for responsive typing
 
 # ──────────────────────────────────────────────
@@ -242,14 +250,18 @@ def make_console() -> Panel:
         for h in state.command_history:
             history.append(f" {h}\n", style=Theme.DIM)
         
-        # Cursor effect: blinks every 500ms (tick increments at 10Hz, so every 5 ticks)
-        show_cursor = (state.tick // 5) % 2 == 0
-        cursor = "█" if show_cursor else " "
+        # Cursor effect: blinks every 500ms when focused
+        if state.focused:
+            show_cursor = (state.tick // 5) % 2 == 0
+            cursor = "█" if show_cursor else " "
+        else:
+            cursor = "▯"
         
+        prompt_style = Theme.CYAN if state.focused else Theme.DIM
         prompt = Text.assemble(
-            (" > ", Theme.CYAN), 
-            (state.current_command, "white"), 
-            (cursor, Theme.CYAN)
+            (" > ", prompt_style), 
+            (state.current_command, "white" if state.focused else Theme.DIM), 
+            (cursor, prompt_style)
         )
         response = Text(f"\n {state.last_response}")
         
