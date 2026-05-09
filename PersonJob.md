@@ -212,9 +212,9 @@ Build:
 * Security controls
 * Monitoring
 * Visualization
-* Incident dashboard
+* **Terminal-based Incident Dashboard** (No web browser)
 
-This makes the project look polished and enterprise-grade.
+This makes the project look polished, hacker-themed, and enterprise-grade.
 
 ---
 
@@ -228,7 +228,7 @@ Simulate:
 * Backup deletion attempts
 * Lateral movement attempt
 
-Can use safe mock scripts.
+Can use safe mock scripts that show activity in the terminal.
 
 ---
 
@@ -236,28 +236,28 @@ Can use safe mock scripts.
 
 Implement:
 
-* Role-based access
-* MFA mock
+* Role-based access (CLI login)
+* MFA mock (TOTP/SMS simulation in terminal)
 * Backup isolation logic
-* Alert generation
+* Alert generation (Terminal notifications/alerts)
 
 ---
 
 ## 3. Monitoring Dashboard
 
-Build dashboard showing:
+Build a **Terminal User Interface (TUI)** showing:
 
-* Backup status
-* Integrity health
+* Backup status (Live tables/progress bars)
+* Integrity health (Status indicators)
 * Recovery readiness
-* Recovery time
-* Threat alerts
+* Recovery time (Real-time timers)
+* Threat alerts (Flashing alerts/banners)
 
 Tech stack:
 
-* React
+* **Python (Rich / Textual)** or **Node.js (Ink / Blessed)**
 * Flask/FastAPI backend
-* Grafana (optional)
+* Logging & Alerting system
 
 ---
 
@@ -265,20 +265,20 @@ Tech stack:
 
 Add:
 
-* Timeline of attack
-* Recovery progress
-* System status
+* **Terminal Timeline** of attack (Scrollable log/events)
+* Recovery progress (ASCII progress bars)
+* System status (Dynamic terminal panels)
 
-This dramatically improves presentation quality.
+This dramatically improves presentation quality during a live demo.
 
 ---
 
 # Deliverables
 
 * Security module
-* Monitoring dashboard
-* Attack simulation
-* Alerting system
+* **Terminal Monitoring Dashboard**
+* Attack simulation scripts
+* CLI Alerting system
 
 ---
 
@@ -286,8 +286,8 @@ This dramatically improves presentation quality.
 
 ```text id="xjlwmq"
                 +-------------------+
-                | Monitoring UI     |
-                | Alerts Dashboard  |
+                | Terminal Dashboard|
+                | Security Console  |
                 +---------+---------+
                           |
           +---------------+--------------+
@@ -312,7 +312,7 @@ This dramatically improves presentation quality.
 | Component     | Recommended        |
 | ------------- | ------------------ |
 | Backend       | Python + FastAPI   |
-| Frontend      | React              |
+| Frontend / TUI| Python (Rich/Textual)|
 | Backup Engine | Restic/Borg/rclone |
 | Storage       | MinIO/S3           |
 | Containers    | Docker             |
