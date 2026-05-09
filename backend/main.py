@@ -4,7 +4,8 @@ from .routers import backup, recovery, dashboard, legacy
 from .services.encryption import generate_key
 from .services.backup_engine import setup_attack_state
 from .services.index import update_index
-from .services.orchestrator import set_attack_time
+from .services.orchestrator import set_attack_time, monitor_external_sites
+import threading
 
 app = FastAPI(title="PhoenixVault Recovery Platform")
 
@@ -24,6 +25,7 @@ app.include_router(legacy.router)
 @app.on_event("startup")
 def startup_event():
     generate_key()
-    setup_attack_state()
+    # No longer seeding mock data or attacks on startup
     update_index()
-    set_attack_time()
+    # Start external monitoring in background
+    threading.Thread(target=monitor_external_sites, daemon=True).start()

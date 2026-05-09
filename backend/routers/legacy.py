@@ -109,14 +109,124 @@ def status_overview():
             "message": msg
         })
 
+    # 6. External Monitors
+    ext_list = []
+    for url, data in global_state["external_monitors"].items():
+        ext_list.append({
+            "name": url.replace("https://", "").replace("http://", "").split("/")[0],
+            "url": url,
+            "status": data["status"],
+            "health_pct": data["health_pct"],
+            "components": data.get("components", []), # Include sub-components
+            "backup_hash": data.get("backup_hash", "N/A"),
+            "backup_records": data.get("backup_records", 0),
+            "backup_size_kb": data.get("backup_size_kb", 0)
+        })
+
     return {
         "attack_active": attack_active,
         "attack_stage": attack_stage,
         "systems": sys_list,
         "backups": b_list,
         "recovery": rec,
-        "alerts": alerts
+        "alerts": alerts,
+        "external_sites": ext_list
     }
+
+
+@router.post("/monitor/add")
+def monitor_add(url: str):
+    if url not in global_state["external_monitors"]:
+        global_state["external_monitors"][url] = {
+            "status": "pending", 
+            "health_pct": 100, 
+            "last_check": None, 
+            "components": {}, 
+            "seen_logs": set(),
+            "backup_data": None
+        }
+        
+        # Automate backup upon connection
+        import httpx
+        try:
+            target = url.rstrip("/") + "/api/v2/system/export-data"
+            resp = httpx.get(target, timeout=5)
+            if resp.status_code == 200:
+                res_data = resp.json()
+                if res_data.get("status") == "success":
+                    import json
+                    import hashlib
+                    import os
+                    from datetime import datetime
+                    
+                    # Store as a physical snapshot file on disk
+                    os.makedirs("snapshots", exist_ok=True)
+                    host_clean = url.replace("https://", "").replace("http://", "").split("/")[0].replace(":", "_")
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    snapshot_file = f"snapshots/snapshot_{host_clean}_{timestamp}.json"
+                    
+                    data_bytes = json.dumps(res_data.get("data")).encode('utf-8')
+                    with open(snapshot_file, 'wb') as f:
+                        f.write(data_bytes)
+                        
+                    global_state["external_monitors"][url]["snapshot_file"] = snapshot_file
+                    global_state["external_monitors"][url]["backup_hash"] = hashlib.sha256(data_bytes).hexdigest()[:12]
+                    global_state["external_monitors"][url]["backup_records"] = len(res_data.get("data", []))
+                    global_state["external_monitors"][url]["backup_size_kb"] = len(data_bytes) // 1024
+                    
+                    # Add normal log
+                    ts_log = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    global_state["log"].append(f"[{ts_log}] [EXTERNAL] Snapshot secured to {snapshot_file} ({global_state['external_monitors'][url]['backup_size_kb']} KB).")
+        except:
+            pass # Fail silently if endpoint doesn't exist
+
+
+            
+        return {"status": "added", "url": url}
+    return {"status": "exists"}
+
+@router.post("/monitor/fix")
+def monitor_fix(url: str):
+    """Attempt to trigger a recovery on the external site."""
+    if url in global_state["external_monitors"]:
+        import httpx
+        try:
+            snapshot_file = global_state["external_monitors"][url].get("snapshot_file")
+            import json
+            import os
+            backup_data = None
+            if snapshot_file and os.path.exists(snapshot_file):
+                with open(snapshot_file, 'r', encoding='utf-8') as f:
+                    backup_data = json.load(f)
+            
+            # First try the specific data correction endpoint we added for the external monitor
+            target = url.rstrip("/") + "/api/v2/system/restore-data"
+            payload = {"data": backup_data} if backup_data else {}
+
+            
+            resp = httpx.post(target, json=payload, timeout=10)
+            if resp.status_code == 200:
+                # Clear the seen corruption logs locally so the site recovers in our dashboard
+                global_state["external_monitors"][url]["seen_logs"] = set()
+                global_state["external_monitors"][url]["status"] = "online"
+                global_state["external_monitors"][url]["health_pct"] = 100
+                
+                from datetime import datetime
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                global_state["log"].append(f"[{ts}] [EXTERNAL] Data restored on {url}. Breach cleared.")
+                
+                return {"status": "repair_initiated", "target": target}
+            
+            # Fallback to the old recovery endpoint
+            target = url.rstrip("/") + "/attack/recover"
+            resp = httpx.post(target, timeout=5)
+            if resp.status_code == 200:
+                return {"status": "repair_initiated", "target": target}
+            else:
+                return {"status": "repair_failed", "code": resp.status_code}
+        except Exception as e:
+            return {"status": "repair_error", "error": str(e)}
+    return {"status": "not_found"}
 
 
 @router.post("/attack/start")

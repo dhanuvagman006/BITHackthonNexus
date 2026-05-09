@@ -13,15 +13,89 @@ global_state = {
     "started_at": None,
     "completed_at": None,
     "attack_detected_at": None,
-    "systems": {
-        "auth-server": "PENDING",
-        "database": "PENDING",
-        "app-server": "PENDING",
-        "frontend": "PENDING",
-    },
+    "systems": {}, 
     "log": [],
-    "total_downtime_seconds": 0
+    "total_downtime_seconds": 0,
+    "external_monitors": {} # {url: {"status": "online", "health_pct": 100, "last_check": None, "components": {}}}
 }
+
+def monitor_external_sites():
+    """Background loop to check external sites."""
+    try:
+        import httpx
+    except ImportError:
+        # Don't crash if httpx is missing, just log it
+        print("[!] httpx not found. External monitoring is disabled.")
+        return
+
+    # Use a persistent client to reuse connections and avoid port exhaustion timeouts
+    with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+        while True:
+            urls = list(global_state["external_monitors"].keys())
+            for url in urls:
+                try:
+                    start = time.time()
+                    resp = client.get(url)
+                    latency = time.time() - start
+                    
+                    if resp.is_success or resp.is_redirect:
+                        global_state["external_monitors"][url]["status"] = "online"
+                        # Health based on latency
+                        hp = 100 if latency < 0.5 else (80 if latency < 1.5 else 60)
+                        global_state["external_monitors"][url]["health_pct"] = hp
+                        
+                        # Try to extract granular component data if available
+                        try:
+                            data = resp.json()
+                            if isinstance(data, dict) and "systems" in data:
+                                # Map external systems to our internal format for the dashboard
+                                global_state["external_monitors"][url]["components"] = data["systems"]
+                            elif isinstance(data, dict) and "status" in data:
+                                # Handle other common health formats
+                                global_state["external_monitors"][url]["components"] = data.get("components", {})
+                        except:
+                            pass # Not a JSON response or doesn't have component data
+                            
+                        # Try to fetch corruption logs from the external site
+                        try:
+                            log_url = url.rstrip('/') + '/api/v2/system/corruption-logs'
+                            log_resp = client.get(log_url)
+                            if log_resp.is_success:
+                                ext_logs = log_resp.json()
+                                if isinstance(ext_logs, list):
+                                    seen = global_state["external_monitors"][url].setdefault("seen_logs", set())
+                                    for log_item in ext_logs:
+                                        # Format the log item for display
+                                        log_str = str(log_item)
+                                        if isinstance(log_item, dict):
+                                            log_str = log_item.get("message", log_str)
+                                            
+                                        if log_str not in seen:
+                                            seen.add(log_str)
+                                            # Add to main event log so it appears in the dashboard
+                                            from datetime import datetime
+                                            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                            asset_name = url.replace("https://", "").replace("http://", "").split("/")[0]
+                                            global_state["log"].append(f"[{timestamp}] [EXTERNAL: {asset_name}] {log_str}")
+                                            
+                                        # If there's any corruption log at all, mark the site as compromised
+                                        if ext_logs:
+                                            global_state["external_monitors"][url]["status"] = "compromised"
+                                            global_state["external_monitors"][url]["health_pct"] = 40
+                        except Exception as e:
+                            print(f"[-] Could not fetch external logs for {url}: {e}")
+                    else:
+                        global_state["external_monitors"][url]["status"] = "compromised"
+                        global_state["external_monitors"][url]["health_pct"] = 40
+                        print(f"[!] Monitor alert for {url}: Status {resp.status_code}")
+                except Exception as e:
+                    global_state["external_monitors"][url]["status"] = "offline"
+                    global_state["external_monitors"][url]["health_pct"] = 0
+                    print(f"[!] Monitor failed for {url}: {type(e).__name__} - {str(e)}")
+                
+                global_state["external_monitors"][url]["last_check"] = time.time()
+                
+            time.sleep(10) # Check every 10 seconds
 
 def log_msg(msg: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

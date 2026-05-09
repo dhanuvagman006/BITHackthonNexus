@@ -65,6 +65,7 @@ class DashboardState:
     def add_char(self, char: str):
         with self.lock:
             self.current_command += char
+            self.last_response = "" # Clear response when typing to save space
 
     def backspace(self):
         with self.lock:
@@ -76,20 +77,76 @@ class DashboardState:
             cmd = self.current_command.strip()
             if cmd:
                 self.command_history.append(f"> {cmd}")
-                if len(self.command_history) > 3:
+                if len(self.command_history) > 2: # Reduced from 3 to 2 for more space
                     self.command_history.pop(0)
                 # Spawn command execution in background
                 threading.Thread(target=self.execute_command, args=(cmd.lower(),), daemon=True).start()
             self.current_command = ""
 
     def execute_command(self, cmd: str):
+        # Handle commands with arguments (like 'monitor https://google.com')
+        parts = cmd.split(" ", 1)
+        base_cmd = parts[0]
+        arg = parts[1] if len(parts) > 1 else None
+
         endpoints = {"attack": "/attack/start", "recover": "/attack/recover", "reset": "/attack/reset"}
-        if cmd in endpoints:
+        
+        if base_cmd == "monitor" and arg:
             try:
-                resp = httpx.post(f"{API_BASE}{endpoints[cmd]}", timeout=5)
+                # Ensure it has a scheme
+                if not arg.startswith("http"):
+                    arg = "https://" + arg
+                resp = httpx.post(f"{API_BASE}/monitor/add", params={"url": arg}, timeout=5)
                 with self.lock:
                     if resp.status_code == 200:
-                        self.last_response = f"[{Theme.GREEN}]SUCCESS: {cmd.upper()}[/]"
+                        self.last_response = f"[{Theme.GREEN}]ADDED MONITOR: {arg}[/]"
+                    else:
+                        self.last_response = f"[{Theme.RED}]FAILED: {resp.status_code}[/]"
+            except Exception as e:
+                with self.lock:
+                    self.last_response = f"[{Theme.RED}]CONNECTION ERROR[/]"
+        elif base_cmd == "fix" and arg:
+            try:
+                # Find the full URL from the nickname/partial URL if needed
+                target_url = arg
+                with self.lock:
+                    if self.data:
+                        for s in self.data.get("external_sites", []):
+                            if arg in s["url"] or arg in s["name"]:
+                                target_url = s["url"]
+                                break
+                
+                resp = httpx.post(f"{API_BASE}/monitor/fix", params={"url": target_url}, timeout=10)
+                with self.lock:
+                    if resp.status_code == 200:
+                        res = resp.json()
+                        if res.get("status") == "repair_initiated":
+                            self.last_response = f"[{Theme.GREEN}]REPAIR INITIATED ON {target_url}[/]"
+                        else:
+                            self.last_response = f"[{Theme.RED}]REPAIR FAILED: {res.get('status')}[/]"
+                    else:
+                        self.last_response = f"[{Theme.RED}]FAILED: {resp.status_code}[/]"
+            except Exception as e:
+                with self.lock:
+                    self.last_response = f"[{Theme.RED}]REPAIR ERROR[/]"
+        elif base_cmd == "help":
+            with self.lock:
+                self.last_response = f"[{Theme.YELLOW}]CMDS: attack, recover, reset, monitor <url>, fix <url>, clear, refresh, help[/]"
+        elif base_cmd == "clear":
+            with self.lock:
+                self.command_history = []
+                self.last_response = ""
+        elif base_cmd == "refresh":
+            # Force an immediate poll
+            data_fetcher_loop(once=True)
+            with self.lock:
+                self.last_response = f"[{Theme.CYAN}]DATA REFRESHED[/]"
+        elif base_cmd in endpoints:
+            try:
+                resp = httpx.post(f"{API_BASE}{endpoints[base_cmd]}", timeout=5)
+                with self.lock:
+                    if resp.status_code == 200:
+                        self.last_response = f"[{Theme.GREEN}]SUCCESS: {base_cmd.upper()}[/]"
                     else:
                         self.last_response = f"[{Theme.RED}]FAILED: {resp.status_code}[/]"
             except Exception as e:
@@ -109,9 +166,9 @@ state = DashboardState()
 #  Background Workers
 # ──────────────────────────────────────────────
 
-def data_fetcher_loop():
+def data_fetcher_loop(once=False):
     """Background thread to poll API status."""
-    while state.running:
+    while True:
         try:
             resp = httpx.get(f"{API_BASE}/status/overview", timeout=2)
             if resp.status_code == 200:
@@ -120,6 +177,9 @@ def data_fetcher_loop():
                 state.update_data(None)
         except:
             state.update_data(None)
+        
+        if once or not state.running:
+            break
         time.sleep(0.5)  # Poll every 500ms
 
 def input_handler():
@@ -156,7 +216,17 @@ def make_header() -> Panel:
     with state.lock:
         data = state.data
         now = datetime.now().strftime("%H:%M:%S")
-        is_attack = data and data.get("attack_active")
+        
+        # Global Status: Check if local OR any remote site is breached
+        local_attack = data and data.get("attack_active")
+        remote_attack = False
+        if data:
+            for s in data.get("external_sites", []):
+                if s["status"] == "compromised":
+                    remote_attack = True
+                    break
+        
+        is_attack = local_attack or remote_attack
         connected = state.connected
         
         if not connected:
@@ -164,9 +234,9 @@ def make_header() -> Panel:
             status = "○ OFFLINE"
         else:
             color = Theme.RED if is_attack else Theme.CYAN
-            status = "⚠ BREACH DETECTED" if is_attack else "✓ SECURE"
+            status = "⚠ BREACH DETECTED" if is_attack else "✓ NETWORK SECURE"
         
-        title = Text("PHOENIXVAULT SECURITY OPS", style="bold white")
+        title = Text("PHOENIXVAULT NETWORK OPS CENTER", style="bold white")
         grid = Table.grid(expand=True)
         grid.add_column(ratio=1); grid.add_column(ratio=1); grid.add_column(ratio=1)
         grid.add_row(
@@ -186,32 +256,72 @@ def make_node_monitor() -> Panel:
     with state.lock:
         data = state.data
         if data:
-            for s in data.get("systems", []):
-                st, hp = s["status"], s["health_pct"]
-                icon = f"[{Theme.GREEN}]ONLINE[/]" if st == "online" else (f"[bold {Theme.RED}]CRITICAL[/]" if st == "compromised" else f"[{Theme.BLUE}]RESTORED[/]")
-                bar_color = Theme.GREEN if hp > 80 else (Theme.YELLOW if hp > 40 else Theme.RED)
-                bar = f"[{bar_color}]{'█' * (hp // 10)}{'░' * (10 - hp // 10)} {hp}%[/]"
-                table.add_row(s["name"], icon, bar)
+            # External Sites (Primary Focus)
+            ext_sites = data.get("external_sites", [])
+            if ext_sites:
+                for s in ext_sites:
+                    st, hp = s["status"], s["health_pct"]
+                    icon = f"[{Theme.GREEN}]LIVE[/]" if st == "online" else (f"[bold {Theme.RED}]BREACH?[/]" if st == "compromised" else f"[{Theme.DIM}]OFFLINE[/]")
+                    bar_color = Theme.GREEN if hp > 80 else (Theme.YELLOW if hp > 40 else Theme.RED)
+                    bar = f"[{bar_color}]{'█' * (hp // 10)}{'░' * (10 - hp // 10)} {hp}%[/]"
+                    table.add_row(s["name"][:20], icon, bar)
+                    
+                    # Show sub-components
+                    comp_data = s.get("components")
+                    if isinstance(comp_data, list):
+                        for comp in comp_data:
+                            if not isinstance(comp, dict): continue
+                            c_name = comp.get("name", "Unknown")
+                            c_status = comp.get("status", "unknown")
+                            c_hp = comp.get("health_pct", 0)
+                            
+                            c_icon = f"[{Theme.GREEN}]●[/]" if c_status in ["online", "restored", "healthy"] else (f"[{Theme.RED}]✖[/]" if c_status == "compromised" else "[grey50]○[/]")
+                            table.add_row(f"  └ {c_name}", c_icon, f"[{Theme.DIM}]{c_hp}%[/]")
+            else:
+                table.add_row("[grey50]NO REMOTE ASSETS ADDED[/]", "", "")
+                table.add_row("[grey50]USE: monitor <url>[/]", "", "")
         else:
-            table.add_row("[grey50]NO DATA AVAILABLE[/]", "", "")
+            table.add_row("[grey50]CONNECTING TO CORE...[/]", "", "")
     
-    return Panel(table, title="[bold white]SYSTEM NODES[/]", border_style=Theme.CYAN)
+    return Panel(table, title="[bold white]REMOTE ASSETS MONITOR[/]", border_style=Theme.CYAN)
 
 def make_vault_status() -> Panel:
     table = Table(box=box.SIMPLE, expand=True)
-    table.add_column("BACKUP ID"); table.add_column("INTEGRITY", justify="center"); table.add_column("STORAGE")
+    table.add_column("ASSET / DATASET", ratio=2)
+    table.add_column("INTEGRITY", justify="center", ratio=2)
+    table.add_column("STORAGE", ratio=2)
     
     with state.lock:
         data = state.data
         if data:
-            for b in data.get("backups", []):
-                i_str = f"[{Theme.GREEN}]VERIFIED[/]" if b["integrity"] == "VERIFIED" else f"[{Theme.YELLOW}]PENDING[/]"
-                lock = "🔒 IMMUTABLE" if b["immutable"] else "🔓 MUTABLE"
-                table.add_row(b["backup_id"], i_str, lock)
+            # Show remote backup summaries
+            ext_sites = data.get("external_sites", [])
+            if ext_sites:
+                for s in ext_sites:
+                    status_style = Theme.GREEN if s["status"] == "online" else Theme.RED
+                    
+                    # Dataset details
+                    records = s.get('backup_records', 0)
+                    size = s.get('backup_size_kb', 0)
+                    dataset_details = f"[bold]{s['name'][:20]}[/]\n[{Theme.DIM}]{records} Records ({size} KB)[/]"
+                    
+                    # Integrity Details
+                    hash_val = s.get('backup_hash', 'N/A')
+                    if s["status"] == "online":
+                        integrity = f"[{status_style}]VERIFIED (SHA-256)[/]\n[{Theme.DIM}]SHA: {hash_val}[/]"
+                    else:
+                        integrity = f"[{status_style}]AWAITING REPAIR[/]\n[{Theme.DIM}]SHA: {hash_val}[/]"
+                        
+                    # Storage details (Simulated Cloud/Device)
+                    storage = f"🔒 PhoenixVault Storage\n[{Theme.DIM}]Local Disk Snapshot[/]"
+                    
+                    table.add_row(dataset_details, integrity, storage)
+            else:
+                table.add_row("[grey50]NO REMOTE VAULTS CONNECTED[/]", "", "")
         else:
             table.add_row("[grey50]NO DATA[/]", "", "")
             
-    return Panel(table, title="[bold white]IMMUTABLE VAULT[/]", border_style=Theme.BLUE)
+    return Panel(table, title="[bold white]NETWORK VAULT STATUS[/]", border_style=Theme.BLUE)
 
 def make_recovery_orchestrator() -> Panel:
     with state.lock:
@@ -235,10 +345,21 @@ def make_event_feed() -> Panel:
     with state.lock:
         data = state.data
         if data:
-            for a in data.get("alerts", [])[-6:]:
-                color = Theme.RED if a["severity"] == "CRITICAL" else (Theme.YELLOW if a["severity"] == "WARNING" else Theme.DIM)
+            # Show latest logs at the top
+            for a in reversed(data.get("alerts", [])[-6:]):
+                msg = a["message"]
+                msg_lower = msg.lower()
+                
+                # Apply requested color coding
+                if "corrupt" in msg_lower and "fix" not in msg_lower and "restored" not in msg_lower and "clear" not in msg_lower:
+                    color = Theme.RED
+                elif "restored" in msg_lower or "fix" in msg_lower or "recover" in msg_lower or "clear" in msg_lower:
+                    color = Theme.GREEN
+                else:
+                    color = Theme.BLUE
+                    
                 lines.append(f"{a['timestamp'].split('T')[-1]} ", style=Theme.DIM)
-                lines.append(f"{a['message']}\n", style=color)
+                lines.append(f"{msg}\n", style=color)
         else:
             lines.append("WAITING FOR CONNECTION...", style=Theme.DIM)
             
@@ -261,11 +382,13 @@ def make_console() -> Panel:
         prompt = Text.assemble(
             (" > ", prompt_style), 
             (state.current_command, "white" if state.focused else Theme.DIM), 
-            (cursor, prompt_style)
+            (cursor, "bold white" if state.focused else Theme.DIM)
         )
-        response = Text(f"\n {state.last_response}")
         
-    return Panel(Group(history, prompt, response), title="[bold white]CONSOLE[/]", border_style=Theme.DIM)
+        # Only show response if it exists to save space
+        res_text = Text(f"\n {state.last_response}") if state.last_response else Text("")
+        
+    return Panel(Group(history, prompt, res_text), title=f"[bold {prompt_style}]CONSOLE {'(ACTIVE)' if state.focused else '(INACTIVE - TAB TO FOCUS)'}[/]", border_style=prompt_style)
 
 # ──────────────────────────────────────────────
 #  Startup Sequence
@@ -343,8 +466,9 @@ def show_startup_sequence():
 # ──────────────────────────────────────────────
 
 def main():
-    if "--windowed" in sys.argv:
-        show_startup_sequence()
+    # Always show startup sequence for the demo
+    show_startup_sequence()
+
 
     layout = Layout()
     layout.split_column(
