@@ -346,18 +346,6 @@ def main():
     if "--windowed" in sys.argv:
         show_startup_sequence()
 
-    hWnd = None
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            kernel32 = ctypes.WinDLL('kernel32')
-            user32 = ctypes.WinDLL('user32')
-            hWnd = kernel32.GetConsoleWindow()
-            if hWnd:
-                user32.ShowWindow(hWnd, 3)  # SW_MAXIMIZE
-        except:
-            pass
-
     layout = Layout()
     layout.split_column(
         Layout(name="header", size=3), 
@@ -392,18 +380,6 @@ def main():
         state.running = False
     finally:
         state.running = False
-        if sys.platform == "win32" and hWnd:
-            try:
-                import ctypes
-                user32 = ctypes.WinDLL('user32')
-                user32.PostMessageW(hWnd, 0x0010, 0, 0)
-            except:
-                pass
 
 if __name__ == "__main__":
-    if "--windowed" not in sys.argv:
-        import subprocess
-        subprocess.Popen("start cmd /c python dashboard.py --windowed", shell=True)
-        sys.exit()
-        
     main()

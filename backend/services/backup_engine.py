@@ -79,6 +79,20 @@ def setup_attack_state():
     _create_custom_backup("frontend", now - timedelta(days=1), "CORRUPTED")
 
 
+def setup_clean_state():
+    """Resets everything to a clean state with fresh backups for all systems."""
+    for system in SYSTEMS:
+        system_dir = os.path.join(STORAGE_BASE, system)
+        if os.path.exists(system_dir):
+            for f in os.listdir(system_dir):
+                filepath = os.path.join(system_dir, f)
+                try:
+                    os.chmod(filepath, 0o644)
+                except:
+                    pass
+                os.remove(filepath)
+    create_backups()
+
 def _create_custom_backup(system: str, dt: datetime, status_intent: str):
     timestamp_str = dt.strftime("%Y-%m-%d_%H-%M-%S")
     system_dir = os.path.join(STORAGE_BASE, system)
